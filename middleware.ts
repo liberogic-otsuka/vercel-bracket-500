@@ -14,7 +14,10 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // With `i18n` enabled, Next.js auto-prepends a locale segment to the matcher,
-  // so `/foo/:path+` catches both `/foo/...` and `/{en,ja}/foo/...` shapes.
-  matcher: ['/foo/:path+'],
+  // Only fire on `/foo/<segment>` requests whose segment contains a literal
+  // `[` or percent-encoded `%5B` — i.e. exactly the URL shapes that trigger
+  // the Next 14.2 Pages-Router-i18n ENOENT bug. The leading locale segment
+  // (`/ja/foo/...`) is automatically prepended to the compiled regex when
+  // `i18n` is enabled in next.config.js, so we don't need a separate pattern.
+  matcher: ['/foo/:id(\\[.*|.*%5[Bb].*)'],
 }
