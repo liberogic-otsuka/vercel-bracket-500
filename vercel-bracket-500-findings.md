@@ -6,8 +6,8 @@
 
 ## TL;DR
 
-- **Next.js 14.2.x Pages Router + i18n** の組み合わせ固有のバグ
-- **Next.js 15.x で修正済み**（15.5.18 で挙動消失を確認）
+- **Next.js 14.0.4 〜 15.4.x の Pages Router + i18n** で発生（混入は 14.0.4、詳細は [vercel-bracket-500-root-cause.md](./vercel-bracket-500-root-cause.md)）
+- **Next.js 15.5.0 以降で顕在化しない**（15.5.18 で挙動消失を確認。`NextWebServer` 削除のため呼び出し経路が消えた副産物）
 - 元 repro.md の推測（`MODULE_NOT_FOUND`）は外れ。実際は **2 段 ENOENT の連鎖**
 - 発火条件は当初想定より遥かに狭く、URL pathname に **`[id]` という文字列が含まれる（case-sensitive、route の dynamic param 名と完全一致）** ことが必須
 - 公開 issue・SO・Zenn 等で完全一致する事例は **未報告**
