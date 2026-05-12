@@ -14,5 +14,7 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|_next/data|favicon.ico|api/).*)'],
+  // With `i18n` enabled, Next.js auto-prepends a locale segment to the matcher,
+  // so `/foo/:path+` catches both `/foo/...` and `/{en,ja}/foo/...` shapes.
+  matcher: ['/foo/:path+'],
 }
