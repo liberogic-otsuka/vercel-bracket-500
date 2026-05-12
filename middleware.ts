@@ -1,23 +1,19 @@
-import { NextResponse, type NextRequest } from 'next/server'
+import { NextResponse } from 'next/server'
 
-const containsBracketLiteral = (pathname: string, rawUrl: string) =>
-  pathname.includes('[') || pathname.includes(']') || /%5[bd]/i.test(rawUrl)
-
-export function middleware(request: NextRequest) {
-  if (containsBracketLiteral(request.nextUrl.pathname, request.url)) {
-    return new NextResponse('Not Found', {
-      status: 404,
-      headers: { 'content-type': 'text/plain; charset=utf-8' },
-    })
-  }
-  return NextResponse.next()
+// The Next 14.2 Pages-Router-i18n bug only triggers when a URL segment contains
+// the literal substring `[id]` (case-sensitive, matching the route's actual
+// dynamic param name) or its percent-encoded form `%5Bid%5D` (hex case-
+// insensitive). Other bracket shapes like `[example]`, `[Id]`, or partial
+// brackets are routed normally and do not crash. The matcher below filters to
+// exactly that set, so by the time we reach this handler the request is
+// guaranteed buggy — just return 404.
+export function middleware() {
+  return new NextResponse('Not Found', {
+    status: 404,
+    headers: { 'content-type': 'text/plain; charset=utf-8' },
+  })
 }
 
 export const config = {
-  // Only fire on `/foo/<segment>` requests whose segment contains a literal
-  // `[` or percent-encoded `%5B` — i.e. exactly the URL shapes that trigger
-  // the Next 14.2 Pages-Router-i18n ENOENT bug. The leading locale segment
-  // (`/ja/foo/...`) is automatically prepended to the compiled regex when
-  // `i18n` is enabled in next.config.js, so we don't need a separate pattern.
-  matcher: ['/foo/:id(\\[.*|.*%5[Bb].*)'],
+  matcher: ['/foo/:id(.*\\[id\\].*|.*%5[Bb]id%5[Dd].*)'],
 }
