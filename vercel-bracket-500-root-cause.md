@@ -6,34 +6,53 @@
 
 ## TL;DR
 
-- **原因 PR**: [vercel/next.js#58949](https://github.com/vercel/next.js/pull/58949) — `fix: properly call normalizeDynamicRouteParams in NextWebServer.handleCatchAllRenderRequest`
-- **混入バージョン**: **Next.js 14.0.4** (merge: 2023-12-05, release: 2023-12-07)
-- **真因コード（1 行）**: `packages/next/src/server/server-utils.ts` の `normalizeDynamicRouteParams` 内、
-  `value?.includes(defaultValue as string)` という **substring チェック**
-- **修正バージョン**: **Next.js 15.5.0**（[PR #81389](https://github.com/vercel/next.js/pull/81389) で `NextWebServer` クラスと `web-server.ts` ごと削除されたため、buggy 呼び出し経路自体が消滅）
-  - 注: buggy 行 `value?.includes(defaultValue)` は今でも `server-utils.ts` に残っている。**コードはそのままで、呼ばれなくなった** だけ。
+- **混入 PR**: [vercel/next.js#58949](https://github.com/vercel/next.js/pull/58949) — `fix: properly call normalizeDynamicRouteParams in NextWebServer.handleCatchAllRenderRequest`
+  - 混入バージョン: **Next.js 14.0.4** (merge: 2023-12-05, release: 2023-12-07)
+- **真因コード（1 行）**: `packages/next/src/server/server-utils.ts` の `normalizeDynamicRouteParams` 内、`value?.includes(defaultValue as string)` という **substring チェック**
+- **partial fix PR**: [vercel/next.js#81209](https://github.com/vercel/next.js/pull/81209) — `Update matching query and route param handling`
+  - 修正バージョン: **Next.js 15.4.0** (merge: 2025-07-03, release: 2025-07-14)
+  - `hasValidParams = false` 時に query param をそのまま使うよう変更 → クラッシュは消えたが、**params に placeholder `[id]` が入る別の不具合は残存**
+- **後続のクリーンアップ**: [PR #81389](https://github.com/vercel/next.js/pull/81389) — `Remove web-server from edge-ssr-app` (15.5.0 release) で `NextWebServer` クラスごと削除。ユーザー観測の挙動は変わらない
+- **`.includes()` の substring チェックそのものを修正した PR は存在しない**。15.5.18 のソースにも残っている
+
+### 観測される挙動の対応表
+
+| Next.js | 500 する？ | params 正確？ |
+|---|---|---|
+| 14.0.0 | ❌ | ✅ |
+| 14.0.4 〜 15.3.x | 🔥 | (測れない) |
+| **15.4.0** 以降 | ✅ | ❌ placeholder `[id]` が入る |
 
 ---
 
 ## バージョン bisect の経緯
 
-ブランチで実際にデプロイして本番挙動を観測しました。
+ブランチで実際に Vercel デプロイして本番挙動を観測しました。`/foo/[id]` および fresh URL（cache MISS させて関数本体まで通すため）で測定。
 
-| Next.js | 結果 (`/foo/[id]`) | 検証ブランチ |
-|---|---|---|
-| **13.5.11** | ✅ 200（正常レンダリング） | [`experiment/next-13.5.11`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-13.5.11) |
-| **14.0.0** | ✅ 200 | [`experiment/next-14.0.0`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-14.0.0) |
-| **14.0.4** | 🔥 500 / FUNCTION_INVOCATION_FAILED | [`experiment/next-14.0.4`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-14.0.4) |
-| **14.1.0** | 🔥 500 | [`experiment/next-14.1.0`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-14.1.0) |
-| **14.1.4** | 🔥 500 | [`experiment/next-14.1.4`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-14.1.4) |
-| **14.2.0** | 🔥 500 | [`experiment/next-14.2.0`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-14.2.0) |
-| **14.2.35** | 🔥 500 | [`main`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/main) |
-| 15.0.0 〜 15.4.x | ❓ 未検証（ソース上は buggy 呼び出し残存 → **壊れている見込み**） | — |
-| **15.5.18** | ✅ 200 | [`experiment/next-15`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-15) |
+| Next.js | 500 する？ | params 正確？ | 検証ブランチ |
+|---|---|---|---|
+| 13.5.11 | ❌ | ✅ | [`experiment/next-13.5.11`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-13.5.11) |
+| 14.0.0 | ❌ | ✅ | [`experiment/next-14.0.0`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-14.0.0) |
+| 14.0.4 | 🔥 FUNCTION_INVOCATION_FAILED | (測れない) | [`experiment/next-14.0.4`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-14.0.4) |
+| 14.1.0 | 🔥 | (測れない) | [`experiment/next-14.1.0`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-14.1.0) |
+| 14.1.4 | 🔥 | (測れない) | [`experiment/next-14.1.4`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-14.1.4) |
+| 14.2.0 | 🔥 | (測れない) | [`experiment/next-14.2.0`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-14.2.0) |
+| 14.2.35 | 🔥 | (測れない) | [`main`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/main) |
+| 15.0.8 | 🔥 | (測れない) | [`experiment/next-15.0.8`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-15.0.8) |
+| 15.1.12 | 🔥 | (測れない) | [`experiment/next-15.1.12`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-15.1.12) |
+| 15.3.9 | 🔥 | (測れない) | [`experiment/next-15.3.9`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-15.3.9) |
+| **15.4.8** | ✅ | ❌ placeholder `[id]` | [`experiment/next-15.4.8`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-15.4.8) |
+| 15.4.11 | ✅ | ❌ placeholder `[id]` | [`experiment/next-15.4.11`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-15.4.11) |
+| 15.5.18 | ✅ | ❌ placeholder `[id]` | [`experiment/next-15`](https://github.com/liberogic-otsuka/vercel-bracket-500/tree/experiment/next-15) |
 
-→ **混入の境界は 14.0.0 ↔ 14.0.4 の間**。14.0.1, 14.0.2, 14.0.3 はデプロイ実測していないが、14.0.4 changelog の [#58949](https://github.com/vercel/next.js/pull/58949) の中身が観測症状と完全一致するため、これが原因と確定。
+→ **混入の境界は 14.0.0 ↔ 14.0.4 の間**。14.0.4 changelog の [#58949](https://github.com/vercel/next.js/pull/58949) が観測症状と完全一致するため確定。
 
-→ **修正の境界は 15.4.x ↔ 15.5.0 の間** と推定。15.0.0 〜 15.4.x も `web-server.ts` に buggy 呼び出しが残ったままだったので、これらの版でも症状は出る可能性が高い（実機未検証）。
+→ **partial fix の境界は 15.3.9 ↔ 15.4.8 の間**。15.4.0〜15.4.7 は CVE-2025-66478 で Vercel に deploy できないので実機未確認だが、[PR #81209](https://github.com/vercel/next.js/pull/81209) が 15.4.0 の前 (2025-07-03 merge) に入っているため、**15.4.0 で landed と判定**。
+
+### 副次的に確認したこと
+
+- **`experiment/no-i18n`**: i18n を外すと再現せず → 必要条件
+- **`experiment/no-sibling-index`**: `pages/foo/index.tsx` を削除すると **500 が消えて clean 404 になる** → sibling-static-index は「500 にエスカレーションするための条件」であって、param 正規化バグそのものの条件ではない
 
 ---
 
@@ -157,11 +176,11 @@ PR #58949 の本質的な変更は、**「buggy な substring チェック関数
 
 ---
 
-## 修正版（Next 15.5.0 で発火しなくなった理由）
+## 修正版（Next 15.4.0 で 500 が消えた理由）
 
-ソース調査の結果、修正の実体は **「buggy 行を直した」のではなく「buggy 行を呼ぶ経路ごと削除した」** ことが判明しました。
+ソース調査と実機 bisect の結果、修正の実体は **「buggy 行を直した」のではなく「buggy 行が走ったときの結果を softer な fallback に変えた」** ことが判明しました。
 
-### 確認できる事実
+### `.includes()` 行はずっと残っている
 
 `packages/next/src/server/server-utils.ts` の `normalizeDynamicRouteParams` 内、犯人の 1 行をバージョン横断で grep で追うと:
 
@@ -169,35 +188,55 @@ PR #58949 の本質的な変更は、**「buggy な substring チェック関数
 |---|---|---|
 | 14.0.4 | `value?.includes(defaultValue as string)` | あり（buggy 呼び出し済み）|
 | 14.2.35 | **同じ** | あり |
-| 15.0.0 | **同じ** | あり |
-| 15.1.0 | **同じ** | あり |
-| 15.2.0 | **同じ** | あり |
-| 15.3.0 | **同じ** | あり |
-| 15.4.0 | **同じ** | あり |
-| **15.5.0** | **同じ（変更なし）** | **削除** |
+| 15.0.0 〜 15.4.x | **同じ** | あり |
+| **15.5.0** | **同じ（変更なし）** | 削除 |
 | 15.5.18 | 同じ | 削除 |
 
-つまり問題の **`value?.includes(defaultValue)` という substring チェックは現在のソース (15.5.18) にも残っている**。修正されたのは **呼び出し側**。
+`value?.includes(defaultValue)` という substring チェックは現在のソース (15.5.18) にも残っている。`hasValidParams = false` になる経路は健在。
 
-### 修正の正体: PR #81389（`NextWebServer` クラスごと削除）
+### partial fix の正体: PR #81209
 
-- [PR #81389](https://github.com/vercel/next.js/pull/81389) — `Remove web-server from edge-ssr-app`
-- merge: 2025-07-21、+389/-701 行
-- `packages/next/src/server/web-server.ts` ファイル自体を削除
-- 15.5.0（2025-08-20 release）に含まれた
+- [PR #81209](https://github.com/vercel/next.js/pull/81209) — `Update matching query and route param handling`
+- merge: 2025-07-03、+37/-29 行
+- 15.4.0（2025-07-14 release）に含まれた
 
-このリファクタにより、Vercel Edge runtime が Pages Router を扱う際の経路が変わり、PR #58949 で追加された `normalizeDynamicRouteParams` の呼び出し（→ buggy `.includes()` への到達経路）が消滅した。
+PR body にこう書かれている:
 
-### つまり
+> Validated this is un-necessary and handling an edge case we don't need to be worried about and **it's better to leave the query param for this case instead**
 
-- **修正そのものは PR #58949 への直接の修正ではなく、関係する経路全体の architecture 変更の副産物**
-- `value.includes(defaultValue)` の置き換えや `defaultRouteMatches` 計算の見直しといった「ピンポイント修正」は行われていない
-- 14.2 系への backport は架構上難しい（`NextWebServer` 自体を消すことを意味するため）
-- 14.x を使い続けるなら **本リポジトリの middleware workaround を本番投入するか、Next.js 15.5.x へアップグレード** が現実解
+つまり「`hasValidParams = false` 時に params を捨てて親 index へ fallback するんじゃなく、生の query param をそのまま使え」 という変更。これにより:
 
-### 注意: 15.0 〜 15.4.x も「壊れている見込み」
+- 14.0.4〜15.3.x: `hasValidParams = false` → `normalizedParams = query` → `interpolateDynamicPath` で誤った経路 → 親 index `/ja/foo` を render → **`pages/ja/foo.html` ENOENT → クラッシュ → FUNCTION_INVOCATION_FAILED**
+- 15.4.0 以降: `hasValidParams = false` の処理経路が変わり、関数自身は **placeholder 値 `[id]` を `params` に入れたまま 200 で render**
 
-15.0.0 〜 15.4.x には buggy 呼び出しがそのまま残っているため、これらの版で動かしている場合は同じ症状が出る可能性が高い。実機での確認は未実施。**「Next 15 にしたから安全」ではなく「Next 15.5.0 以降にしたから安全」** が正確。
+### 補足: PR #81389 は副次的なクリーンアップ
+
+- [PR #81389](https://github.com/vercel/next.js/pull/81389) — `Remove web-server from edge-ssr-app`（15.5.0 で merge）
+- `web-server.ts` ファイルを削除した大きなリファクタ
+- ただし **ユーザー観測の挙動は 15.4.0 → 15.5.0 で変化していない**（partial fix の状態は同じ）
+- 「Next 15 で fix」と表現されるが、ユーザー観測上の改善は **すでに 15.4.0 で起きていた**
+
+### partial fix の限界
+
+partial fix で **可用性** は復旧したが、**正確性** は壊れたまま:
+
+| 観点 | 14.2.35 | 15.4.0 〜 15.5.18 |
+|---|---|---|
+| FUNCTION_INVOCATION_FAILED | 🔥 する | ✅ しない |
+| Lambda 課金 | 累積する | 累積する（200 でも 1 req 1 invocation）|
+| 表示内容 | 500 ページ | `id: [id]` と書かれた `/foo/<元の URL 値>` ページ |
+| Google が index する | 500 → 排除される | **200 → 間違った content で index される** |
+| SEO 上の害 | 一時的な品質悪化 | **canonical 重複 + 偽 content** で潜在的にもっと厄介 |
+
+「500 が出なくなった」 だけ見ると改善だが、SEO 観点では **15.4 以降で逆に悪化する可能性も**。Google が壊れた URL を 200 として正常認識し始めるので、本 repo の middleware workaround は **15.5+ にアップグレードしても外せない**。
+
+### まとめ
+
+- **本質的な fix は未だに存在しない**。`.includes()` の substring チェックも `defaultRouteMatches` の計算も 15.5.18 でそのまま
+- 14.0.4 〜 15.3.x のいずれを使っていても **500 は発生する**
+- 15.4.0 以降は **500 は出ないが params 不一致による別の問題が顕在化**
+- 14.x を使い続けるなら **本リポジトリの middleware workaround を本番投入**
+- 15.4+ にアップグレードしても上記 workaround は外せない（SEO 観点）
 
 ---
 
@@ -208,15 +247,17 @@ PR #58949 の本質的な変更は、**「buggy な substring チェック関数
 報告時に含めるべき情報:
 
 1. **再現リポジトリ**: [liberogic-otsuka/vercel-bracket-500](https://github.com/liberogic-otsuka/vercel-bracket-500)
-2. **回帰の境界**: 14.0.0 ✅ / 14.0.4 🔥
-3. **真因コミット**: [PR #58949](https://github.com/vercel/next.js/pull/58949) — `value.includes(defaultValue)` の substring チェック
-4. **顕在化しなくなった経緯**: [PR #81389](https://github.com/vercel/next.js/pull/81389) で `NextWebServer` 削除 → 15.5.0 に含まれる。buggy 行自体は `server-utils.ts` に残存
-5. **影響範囲**: Pages Router + `i18n` 有効 + sibling-static-index + URL に `[<paramName>]` substring の組み合わせ
-6. **未解決の懸念**: 15.0.0 〜 15.4.x は架構上同じ buggy 経路を持つので壊れているはずだが実機未検証。`server-utils.ts` 内の substring チェックは 15.5.18 にも残っており、別の呼び出し経路で同様の症状を起こす可能性が将来出てくるかもしれない
-7. **症状**: 2 段 ENOENT → `FUNCTION_INVOCATION_FAILED`（[vercel-bracket-500-findings.md](./vercel-bracket-500-findings.md) のログ抜粋参照）
+2. **混入と partial fix の境界**:
+   - 混入: 14.0.4（[PR #58949](https://github.com/vercel/next.js/pull/58949)）
+   - partial fix: 15.4.0（[PR #81209](https://github.com/vercel/next.js/pull/81209)）— 500 は消えたが placeholder `[id]` が params に入る不具合に変質
+3. **真因コード**: `packages/next/src/server/server-utils.ts` の `value?.includes(defaultValue as string)` substring チェック。**15.5.18 でも未修正**
+4. **影響範囲**:
+   - 14.0.4 〜 15.3.x: `FUNCTION_INVOCATION_FAILED` を引き起こす（Pages Router + i18n + sibling-static-index + URL に `[<paramName>]` substring の組み合わせ）
+   - 15.4.0 以降: 上記症状は消えるが、URL に `[<paramName>]` substring を含むリクエストで **`params.<paramName>` に placeholder `[<paramName>]` が入る**（URL 実値が失われる）
+5. **症状**: 14.x の場合は 2 段 ENOENT → `FUNCTION_INVOCATION_FAILED`（[vercel-bracket-500-findings.md](./vercel-bracket-500-findings.md) のログ抜粋参照）
 
-タイトル案（前回より具体化）:
+タイトル案:
 
-> Pages Router + i18n: PR #58949's substring check in `normalizeDynamicRouteParams` causes ENOENT crash for URLs containing `[<paramName>]` literal (regression in 14.0.4, no longer reachable after web-server.ts removal in 15.5.0; buggy line still in source)
+> Pages Router + i18n: `normalizeDynamicRouteParams` substring check in `server-utils.ts` causes wrong params (and 500 on 14.0.4-15.3.x due to ENOENT crash; partial fix in PR #81209/15.4.0 stopped the crash but param remains incorrect placeholder)
 
-これで Next.js メンテナは bisect 不要で原因 line に直接アクセスでき、14.2 系への backport 判断（実質 `web-server.ts` 削除を要するため難しいことの理解）もしやすい。また「14.0.4 〜 15.4.x すべて要 patch」と捉えるべきという範囲も明示できる。
+ポイントは 「**500 は止まったが本質は未修正**」 を明示すること。15.4+ でも middleware による URL 弾きが必要、という現実を伝えやすくなる。
