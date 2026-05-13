@@ -209,6 +209,29 @@ PR body にこう書かれている:
 - 14.0.4〜15.3.x: `hasValidParams = false` → `normalizedParams = query` → `interpolateDynamicPath` で誤った経路 → 親 index `/ja/foo` を render → **`pages/ja/foo.html` ENOENT → クラッシュ → FUNCTION_INVOCATION_FAILED**
 - 15.4.0 以降: `hasValidParams = false` の処理経路が変わり、関数自身は **placeholder 値 `[id]` を `params` に入れたまま 200 で render**
 
+### 精確には: `params.<paramName>` は URL の実値に関係なく一律 `[<paramName>]` 固定になる
+
+「params が壊れる」 を実測ベースで精確に書くと:
+
+> URL の <パス> セグメントに `[<paramName>]` という substring が含まれている時、`params.<paramName>` の値が **URL の実値に関係なく一律 `[<paramName>]` 固定** になる
+
+これは、ユーザーが本当に `[<paramName>]` を id 値として送りたかった場合 (`/foo/[id]` ぴったり) に限り **偶然正解** になるが、それ以外は URL 上の情報が失われる。実測:
+
+| URL | 開発者の意図する `params.id` | 15.4+ の実際の `params.id` | 一致？ |
+|---|---|---|---|
+| `/foo/[id]` | `'[id]'` | `'[id]'` | ✅ まぐれで正解 |
+| `/foo/[id]hoge` | `'[id]hoge'` | `'[id]'` | ❌ |
+| `/foo/x[id]y` | `'x[id]y'` | `'[id]'` | ❌ |
+| `/foo/abc[id]xyz` | `'abc[id]xyz'` | `'[id]'` | ❌ |
+| `/foo/[example]` | `'[example]'` | `'[example]'` | ✅ buggy 経路に入らない |
+| `/foo/normal-id` | `'normal-id'` | `'normal-id'` | ✅ 同上 |
+
+実害として最大のものは「**substring が含まれる複数の URL がすべて同じ content (`id: [id]` ページ) を返す**」 こと:
+
+- `/foo/aaa[id]bbb`、`/foo/cb1234[id]`、`/foo/[id]freshtest` が **全部同じ HTML 内容** を serve する
+- Google から見ると **canonical 重複 + 偽 content** → サイト全体の品質スコア低下
+- ISR cache キーは URL ごとなので **無駄なキャッシュエントリが無限に増える**
+
 ### 補足: PR #81389 は副次的なクリーンアップ
 
 - [PR #81389](https://github.com/vercel/next.js/pull/81389) — `Remove web-server from edge-ssr-app`（15.5.0 で merge）
